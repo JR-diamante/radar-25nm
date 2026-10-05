@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radar 25 NM</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#020a06;--ph:#5dff9a;--dim:#1f6b42;--amb:#ffb347;--tx:#b8f5d0}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 "Share Tech Mono",ui-monospace,Menlo,Consolas,monospace}
+body{display:grid;grid-template-columns:1fr 300px}
+main{position:relative;min-height:320px}
+canvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+aside{border-left:1px solid var(--dim);padding:16px;overflow:auto;display:flex;flex-direction:column;gap:14px}
+h1{font-size:16px;margin:0;color:var(--ph);font-weight:400}
+label{display:block;color:var(--dim)}
+input[type=range]{width:100%;accent-color:var(--ph)}
+input[type=number]{width:100%;background:#031a0f;border:1px solid var(--dim);color:var(--ph);font:inherit;padding:4px 6px}
+button{background:#031a0f;border:1px solid var(--ph);color:var(--ph);font:inherit;padding:6px 8px;cursor:pointer}
+button:hover,button:focus-visible{background:var(--ph);color:var(--bg);outline:none}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#st{color:var(--amb);min-height:3em}
+#info dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:6px 0 0}
+#info dt{color:var(--dim)}#info dd{margin:0;color:var(--ph)}
+@media(max-width:760px){body{grid-template-columns:1fr;grid-template-rows:60vh auto}aside{border-left:0;border-top:1px solid var(--dim)}}
+</style>
+</head>
+<body>
+<main><canvas id="cv"></canvas></main>
+<aside>
+  <h1>Radar · 25 NM</h1>
+  <div id="st">Iniciando…</div>
+  <div class="row">
+    <label>Latitud<input id="lat" type="number" step="any"></label>
+    <label>Longitud<input id="lon" type="number" step="any"></label>
+  </div>
+  <div class="row"><button id="b1">Mi ubicación</button><button id="b2">Usar coordenadas</button></div>
+  <label>Barrido: <span id="v1"></span> s por vuelta<input id="per" type="range" min="3" max="12" step="1" value="6"></label>
+  <label>Estela: <span id="v2"></span> posiciones<input id="trl" type="range" min="0" max="12" step="1" value="6"></label>
+  <label>Altitud máx: FL<span id="v3"></span><input id="fl" type="range" min="50" max="450" step="10" value="450"></label>
+  <div id="info">Haz clic en un blanco para ver sus datos.</div>
+</aside>
+<script>
+const $=id=>document.getElementById(id), TAU=Math.PI*2;
+const SRC=[
+  ["adsb.lol",(a,o)=>`https://api.adsb.lol/v2/point/${a}/${o}/25`],
+  ["airplanes.live",(a,o)=>`https://api.airplanes.live/v2/point/${a}/${o}/25`],
+  ["adsb.fi",(a,o)=>`https://opendata.adsb.fi/api/v2/lat/${a}/lon/${o}/dist/25`]];
+const cv=$("cv"),g=cv.getContext("2d"),cfg={per:6,trail:6,fl:450};
+let C=null,ac=new Map(),sel=null,W=0,H=0,dpr=1,ang=0,last=performance.now(),src="";
+
+const status=t=>$("st").textContent=t;
+function fit(){const r=cv.parentElement.getBoundingClientRect();dpr=devicePixelRatio||1;W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr}
+addEventListener("resize",fit);fit();
+
+function rel(la1,lo1,la2,lo2){const r=Math.PI/180,x=(lo2-lo1)*r*Math.cos((la1+la2)*r/2),y=(la2-la1)*r;
+  return{d:Math.hypot(x,y)*3440.065,b:(Math.atan2(x,y)+TAU)%TAU}}
+
+function setC(lat,lon){C={lat,lon};ac.clear();sel=null;$("lat").value=lat.toFixed(4);$("lon").value=lon.toFixed(4);
+  try{localStorage.setItem("radarC",JSON.stringify(C))}catch(e){}status("Centro fijado. Esperando datos…");poll()}
+function locate(){
+  if(!navigator.geolocation)return status("Este navegador no ofrece geolocalización. Introduce las coordenadas.");
+  status("Pidiendo ubicación al navegador…");
+  navigator.geolocation.getCurrentPosition(p=>setC(p.coords.latitude,p.coords.longitude),
+    e=>status("No se pudo obtener la ubicación ("+e.message+"). Introduce las coordenadas o ejecuta python3 server.py y abre http://localhost:8000/radar.html"),
+    {timeout:15000});
+}
+$("b1").onclick=locate;
+$("b2").onclick=()=>{const a=parseFloat($("lat").value),o=parseFloat($("lon").value);
+  if(isNaN(a)||isNaN(o)||Math.abs(a)>90||Math.abs(o)>180)return status("Coordenadas no válidas.");setC(a,o)};
+
+async function get(url){
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),8000);
+  try{const r=await fetch(url,{signal:c.signal});if(!r.ok)throw new Error("HTTP "+r.status);return await r.json()}
+  finally{clearTimeout(t)}
+}
+async function poll(){
+  if(!C)return;
+  const a=C.lat.toFixed(4),o=C.lon.toFixed(4),errs=[],list=[];
+  if(location.protocol.startsWith("http"))list.push(["servidor local",`/api?lat=${a}&lon=${o}`]);
+  SRC.forEach(([n,f])=>list.push([n,f(a,o)]));
+  for(const [n,u] of list){
+    try{const j=await get(u);ingest(j.ac||j.aircraft||[],n);return}
+    catch(e){errs.push(n+": "+(e.name==="AbortError"?"tiempo agotado":e.message))}
+  }
+  status("Sin datos ("+errs.join(" | ")+" ). Prueba a ejecutar python3 server.py y abrir http://localhost:8000/radar.html");
+}
+setInterval(poll,5000);
+function ingest(list,n){
+  const now=performance.now();src=n;
+  for(const p of list){
+    const alt=+p.alt_baro;if(p.lat==null||p.lon==null||p.alt_baro=="ground"||isNaN(alt))continue;
+    const q=rel(C.lat,C.lon,p.lat,p.lon);if(q.d>25)continue;
+    let a=ac.get(p.hex);if(!a){a={trail:[],shown:null};ac.set(p.hex,a)}
+    a.cur={hex:p.hex,cs:(p.flight||"").trim()||p.hex.toUpperCase(),reg:p.r,type:p.t,alt,gs:p.gs,trk:p.track,vr:p.baro_rate,sq:p.squawk,d:q.d,b:q.b,t:now};
+    a.seen=now;
+  }
+  for(const [h,a] of ac)if(now-a.seen>30000){ac.delete(h);if(sel===h)sel=null}
+  status(`${ac.size} aeronaves · fuente ${n}`);
+}
+
+const fl=a=>"FL"+String(Math.round(a/100)).padStart(3,"0");
+const arrow=v=>v>300?"↑":v<-300?"↓":"=";
+function geom(){const rad=Math.min(W,H)/2-34;return{cx:W/2,cy:H/2,rad}}
+const pos=(o,G)=>[G.cx+o.d/25*G.rad*Math.sin(o.b),G.cy-o.d/25*G.rad*Math.cos(o.b)];
+
+function frame(t){
+  const dt=Math.min((t-last)/1000,1);last=t;const pa=ang;ang=(ang+TAU*dt/cfg.per)%TAU;
+  for(const a of ac.values()){
+    const b=a.cur.b,hit=pa<=ang?(b>pa&&b<=ang):(b>pa||b<=ang);
+    if(hit&&(!a.shown||a.shown.t!==a.cur.t)){
+      if(a.shown){a.trail.push(a.shown);if(a.trail.length>12)a.trail.shift()}
+      a.shown={...a.cur,at:t};
+    } else if(hit&&a.shown)a.shown.at=t;
+  }
+  draw(t);requestAnimationFrame(frame);
+}
+function draw(t){
+  const G=geom();g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+  g.lineWidth=1;g.strokeStyle="#1f6b42";g.fillStyle="#1f6b42";g.font="12px 'Share Tech Mono',monospace";g.textAlign="left";
+  for(let i=1;i<=5;i++){g.beginPath();g.arc(G.cx,G.cy,G.rad*i/5,0,TAU);g.stroke();g.fillText(i*5,G.cx+4,G.cy-G.rad*i/5-3)}
+  for(let d=0;d<360;d+=10){const r=d*Math.PI/180,l=d%30?5:10,s=Math.sin(r),c=Math.cos(r);
+    g.beginPath();g.moveTo(G.cx+s*G.rad,G.cy-c*G.rad);g.lineTo(G.cx+s*(G.rad-l),G.cy-c*(G.rad-l));g.stroke()}
+  g.beginPath();g.moveTo(G.cx-G.rad,G.cy);g.lineTo(G.cx+G.rad,G.cy);g.moveTo(G.cx,G.cy-G.rad);g.lineTo(G.cx,G.cy+G.rad);g.stroke();
+  g.textAlign="center";g.fillStyle="#5dff9a";
+  [["N",0,-1],["E",1,0],["S",0,1],["O",-1,0]].forEach(([s,x,y])=>g.fillText(s,G.cx+x*(G.rad+18),G.cy+y*(G.rad+18)+4));
+  const a0=ang-Math.PI/2,f=1.1/TAU;
+  if(g.createConicGradient){const gr=g.createConicGradient(a0-1.1,G.cx,G.cy);
+    gr.addColorStop(0,"rgba(93,255,154,0)");gr.addColorStop(f,"rgba(93,255,154,.35)");gr.addColorStop(Math.min(f+.002,1),"rgba(93,255,154,0)");gr.addColorStop(1,"rgba(93,255,154,0)");
+    g.fillStyle=gr;g.beginPath();g.arc(G.cx,G.cy,G.rad,0,TAU);g.fill()}
+  g.strokeStyle="#5dff9a";g.lineWidth=2;g.beginPath();g.moveTo(G.cx,G.cy);g.lineTo(G.cx+Math.cos(a0)*G.rad,G.cy+Math.sin(a0)*G.rad);g.stroke();g.lineWidth=1;
+  g.fillStyle="#5dff9a";g.fillRect(G.cx-2,G.cy-2,4,4);
+  g.textAlign="left";
+  for(const [h,a] of ac){
+    const s=a.shown;if(!s||s.alt>cfg.fl*100)continue;
+    const col=s.d<1.5?"255,179,71":"93,255,154",al=Math.max(.4,1-(t-s.at)/(cfg.per*1000*1.2));
+    const tr=a.trail.slice(-cfg.trail);
+    tr.forEach((o,i)=>{const [x,y]=pos(o,G);g.fillStyle=`rgba(${col},${(i+1)/(tr.length+1)*.6})`;g.fillRect(x-1.5,y-1.5,3,3)});
+    const [x,y]=pos(s,G);
+    if(s.trk!=null){const r=s.trk*Math.PI/180;g.strokeStyle=`rgba(${col},${al})`;g.beginPath();g.moveTo(x,y);g.lineTo(x+Math.sin(r)*18,y-Math.cos(r)*18);g.stroke()}
+    g.strokeStyle=`rgba(${col},${al})`;g.strokeRect(x-4,y-4,8,8);
+    if(h===sel){g.strokeStyle="#fff";g.beginPath();g.arc(x,y,11,0,TAU);g.stroke()}
+    g.fillStyle=`rgba(${col},${al})`;
+    g.fillText(s.cs,x+10,y-6);g.fillText(`${fl(s.alt)}${arrow(s.vr)} ${s.gs!=null?Math.round(s.gs):"--"}`,x+10,y+7);
+  }
+}
+cv.addEventListener("click",e=>{
+  const r=cv.getBoundingClientRect(),G=geom(),mx=e.clientX-r.left,my=e.clientY-r.top;let best=null,bd=18;
+  for(const [h,a] of ac){const s=a.shown;if(!s||s.alt>cfg.fl*100)continue;const [x,y]=pos(s,G),d=Math.hypot(x-mx,y-my);if(d<bd){bd=d;best=h}}
+  sel=best;panel();
+});
+function panel(){
+  const el=$("info"),a=sel&&ac.get(sel);
+  if(!a||!a.shown){el.textContent="Haz clic en un blanco para ver sus datos.";return}
+  const s=a.shown,v=(x,u="")=>x==null?"--":x+u;
+  el.innerHTML=`<span style="color:var(--ph)">${s.cs}</span><dl>
+  <dt>Tipo</dt><dd>${v(s.type)}</dd><dt>Matrícula</dt><dd>${v(s.reg)}</dd>
+  <dt>Altitud</dt><dd>${fl(s.alt)} (${s.alt} ft)</dd><dt>Vel. suelo</dt><dd>${v(s.gs!=null&&Math.round(s.gs)," kt")}</dd>
+  <dt>Rumbo</dt><dd>${v(s.trk!=null&&Math.round(s.trk),"°")}</dd><dt>Vertical</dt><dd>${v(s.vr," ft/min")}</dd>
+  <dt>Squawk</dt><dd>${v(s.sq)}</dd><dt>Posición</dt><dd>${s.d.toFixed(1)} NM · ${Math.round(s.b*180/Math.PI)}°</dd></dl>`;
+}
+setInterval(panel,1000);
+
+[["per","v1","per"],["trl","v2","trail"],["fl","v3","fl"]].forEach(([i,v,k])=>{
+  const f=()=>{cfg[k]=+$(i).value;$(v).textContent=$(i).value};$(i).oninput=f;f()});
+
+try{const c=JSON.parse(localStorage.getItem("radarC"));if(c&&c.lat!=null){C=c;$("lat").value=c.lat.toFixed(4);$("lon").value=c.lon.toFixed(4);poll()}}catch(e){}
+locate();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
+

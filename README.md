@@ -1,49 +1,49 @@
 # Radar 25 NM
 
-Aplicación web de radar que muestra aeronaves cercanas y permite centrar la pantalla en tu ubicación actual o en coordenadas personalizadas.
+A small web radar app that shows nearby aircraft and lets you center the display on your current location or custom coordinates.
 
-## ¿Qué hace?
+## What it does
 
-- Carga datos ADS-B desde varios proveedores.
-- Muestra aeronaves dentro de 25 NM del centro elegido.
-- Dibuja un barrido, estela, detalles del avión y filtrado por altitud.
-- Usa un proxy local en Python para evitar problemas de CORS.
+- Loads ADS-B data from multiple providers.
+- Shows aircraft within 25 NM of the selected center point.
+- Draws a sweep line, trail, aircraft details, and altitude filtering.
+- Uses a local Python proxy to avoid CORS issues when served locally.
 
-## Cómo ejecutarlo localmente
+## Run it locally
 
-1. Abre una terminal en la carpeta del proyecto.
-2. Inicia el servidor local:
+1. Open a terminal in the project folder.
+2. Start the local server:
 
 ```bash
 python3 server.py
 ```
 
-3. Abre esta URL en el navegador:
+3. Open this URL in your browser:
 
 ```text
 http://localhost:8000/radar.html
 ```
 
-## Cómo usar la app
+## How to use it
 
-- Pulsa `Mi ubicación` para usar la geolocalización del navegador.
-- O introduce latitud y longitud manualmente y pulsa `Usar coordenadas`.
-- Ajusta los controles:
-  - Barrido: velocidad del barrido del radar
-  - Estela: longitud de la estela
-  - Altitud máx: altitud máxima mostrada
-- Haz clic en cualquier marcador para ver los detalles del avión.
+- Click `My location` to use your browser geolocation.
+- Or enter latitude and longitude manually, then click `Use coordinates`.
+- Adjust the controls:
+  - Sweep: radar sweep speed
+  - Trail: trail length
+  - Max altitude: maximum displayed altitude
+- Click any target marker to view the aircraft details.
 
-## Archivos
+## Files
 
-- `radar.html`: interfaz del radar y lógica de dibujo
-- `server.py`: proxy local para recuperar datos ADS-B desde fuentes externas
+- `radar.html`: frontend radar interface and drawing logic
+- `server.py`: local proxy that retrieves ADS-B data from external sources
 
-## Notas
+## Notes
 
-- La aplicación requiere un servidor local. Abrir el archivo HTML directamente puede fallar por restricciones del navegador.
-- Si una fuente de datos no responde, intenta la siguiente automáticamente.
+- The app requires a local web server. Opening the HTML file directly may fail due to browser restrictions.
+- If a data source is unavailable, it automatically tries the next one.
 
-## Licencia
+## License
 
-Este proyecto está licenciado bajo la licencia MIT. Consulta el archivo LICENSE para más detalles.
+This project is licensed under the MIT License. See the LICENSE file for details.

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -30,16 +30,16 @@ button:hover,button:focus-visible{background:var(--ph);color:var(--bg);outline:n
 <main><canvas id="cv"></canvas></main>
 <aside>
   <h1>Radar · 25 NM</h1>
-  <div id="st">Iniciando…</div>
+  <div id="st">Starting…</div>
   <div class="row">
-    <label>Latitud<input id="lat" type="number" step="any"></label>
-    <label>Longitud<input id="lon" type="number" step="any"></label>
+    <label>Latitude<input id="lat" type="number" step="any"></label>
+    <label>Longitude<input id="lon" type="number" step="any"></label>
   </div>
-  <div class="row"><button id="b1">Mi ubicación</button><button id="b2">Usar coordenadas</button></div>
-  <label>Barrido: <span id="v1"></span> s por vuelta<input id="per" type="range" min="3" max="12" step="1" value="6"></label>
-  <label>Estela: <span id="v2"></span> posiciones<input id="trl" type="range" min="0" max="12" step="1" value="6"></label>
-  <label>Altitud máx: FL<span id="v3"></span><input id="fl" type="range" min="50" max="450" step="10" value="450"></label>
-  <div id="info">Haz clic en un blanco para ver sus datos.</div>
+  <div class="row"><button id="b1">My location</button><button id="b2">Use coordinates</button></div>
+  <label>Sweep: <span id="v1"></span> s per rotation<input id="per" type="range" min="3" max="12" step="1" value="6"></label>
+  <label>Trail: <span id="v2"></span> positions<input id="trl" type="range" min="0" max="12" step="1" value="6"></label>
+  <label>Max altitude: FL<span id="v3"></span><input id="fl" type="range" min="50" max="450" step="10" value="450"></label>
+  <div id="info">Click on a target to view its details.</div>
 </aside>
 <script>
 const $=id=>document.getElementById(id), TAU=Math.PI*2;
@@ -58,17 +58,17 @@ function rel(la1,lo1,la2,lo2){const r=Math.PI/180,x=(lo2-lo1)*r*Math.cos((la1+la
   return{d:Math.hypot(x,y)*3440.065,b:(Math.atan2(x,y)+TAU)%TAU}}
 
 function setC(lat,lon){C={lat,lon};ac.clear();sel=null;$("lat").value=lat.toFixed(4);$("lon").value=lon.toFixed(4);
-  try{localStorage.setItem("radarC",JSON.stringify(C))}catch(e){}status("Centro fijado. Esperando datos…");poll()}
+  try{localStorage.setItem("radarC",JSON.stringify(C))}catch(e){}status("Center set. Waiting for data…");poll()}
 function locate(){
-  if(!navigator.geolocation)return status("Este navegador no ofrece geolocalización. Introduce las coordenadas.");
-  status("Pidiendo ubicación al navegador…");
+  if(!navigator.geolocation)return status("This browser does not provide geolocation. Enter coordinates manually.");
+  status("Requesting location from the browser…");
   navigator.geolocation.getCurrentPosition(p=>setC(p.coords.latitude,p.coords.longitude),
-    e=>status("No se pudo obtener la ubicación ("+e.message+"). Introduce las coordenadas o ejecuta python3 server.py y abre http://localhost:8000/radar.html"),
+    e=>status("Could not get your location ("+e.message+"). Enter coordinates manually or run python3 server.py and open http://localhost:8000/radar.html"),
     {timeout:15000});
 }
 $("b1").onclick=locate;
 $("b2").onclick=()=>{const a=parseFloat($("lat").value),o=parseFloat($("lon").value);
-  if(isNaN(a)||isNaN(o)||Math.abs(a)>90||Math.abs(o)>180)return status("Coordenadas no válidas.");setC(a,o)};
+  if(isNaN(a)||isNaN(o)||Math.abs(a)>90||Math.abs(o)>180)return status("Invalid coordinates.");setC(a,o)};
 
 async function get(url){
   const c=new AbortController(),t=setTimeout(()=>c.abort(),8000);
@@ -78,13 +78,13 @@ async function get(url){
 async function poll(){
   if(!C)return;
   const a=C.lat.toFixed(4),o=C.lon.toFixed(4),errs=[],list=[];
-  if(location.protocol.startsWith("http"))list.push(["servidor local",`/api?lat=${a}&lon=${o}`]);
+  if(location.protocol.startsWith("http"))list.push(["local server",`/api?lat=${a}&lon=${o}`]);
   SRC.forEach(([n,f])=>list.push([n,f(a,o)]));
   for(const [n,u] of list){
     try{const j=await get(u);ingest(j.ac||j.aircraft||[],n);return}
-    catch(e){errs.push(n+": "+(e.name==="AbortError"?"tiempo agotado":e.message))}
+    catch(e){errs.push(n+": "+(e.name==="AbortError"?"timeout":e.message))}
   }
-  status("Sin datos ("+errs.join(" | ")+" ). Prueba a ejecutar python3 server.py y abrir http://localhost:8000/radar.html");
+  status("No data ("+errs.join(" | ")+" ). Try running python3 server.py and open http://localhost:8000/radar.html");
 }
 setInterval(poll,5000);
 function ingest(list,n){
@@ -97,7 +97,7 @@ function ingest(list,n){
     a.seen=now;
   }
   for(const [h,a] of ac)if(now-a.seen>30000){ac.delete(h);if(sel===h)sel=null}
-  status(`${ac.size} aeronaves · fuente ${n}`);
+  status(`${ac.size} aircraft · source ${n}`);
 }
 
 const fl=a=>"FL"+String(Math.round(a/100)).padStart(3,"0");
@@ -124,7 +124,7 @@ function draw(t){
     g.beginPath();g.moveTo(G.cx+s*G.rad,G.cy-c*G.rad);g.lineTo(G.cx+s*(G.rad-l),G.cy-c*(G.rad-l));g.stroke()}
   g.beginPath();g.moveTo(G.cx-G.rad,G.cy);g.lineTo(G.cx+G.rad,G.cy);g.moveTo(G.cx,G.cy-G.rad);g.lineTo(G.cx,G.cy+G.rad);g.stroke();
   g.textAlign="center";g.fillStyle="#5dff9a";
-  [["N",0,-1],["E",1,0],["S",0,1],["O",-1,0]].forEach(([s,x,y])=>g.fillText(s,G.cx+x*(G.rad+18),G.cy+y*(G.rad+18)+4));
+  [["N",0,-1],["E",1,0],["S",0,1],["W",-1,0]].forEach(([s,x,y])=>g.fillText(s,G.cx+x*(G.rad+18),G.cy+y*(G.rad+18)+4));
   const a0=ang-Math.PI/2,f=1.1/TAU;
   if(g.createConicGradient){const gr=g.createConicGradient(a0-1.1,G.cx,G.cy);
     gr.addColorStop(0,"rgba(93,255,154,0)");gr.addColorStop(f,"rgba(93,255,154,.35)");gr.addColorStop(Math.min(f+.002,1),"rgba(93,255,154,0)");gr.addColorStop(1,"rgba(93,255,154,0)");
@@ -152,13 +152,13 @@ cv.addEventListener("click",e=>{
 });
 function panel(){
   const el=$("info"),a=sel&&ac.get(sel);
-  if(!a||!a.shown){el.textContent="Haz clic en un blanco para ver sus datos.";return}
+  if(!a||!a.shown){el.textContent="Click on a target to view its details.";return}
   const s=a.shown,v=(x,u="")=>x==null?"--":x+u;
   el.innerHTML=`<span style="color:var(--ph)">${s.cs}</span><dl>
-  <dt>Tipo</dt><dd>${v(s.type)}</dd><dt>Matrícula</dt><dd>${v(s.reg)}</dd>
-  <dt>Altitud</dt><dd>${fl(s.alt)} (${s.alt} ft)</dd><dt>Vel. suelo</dt><dd>${v(s.gs!=null&&Math.round(s.gs)," kt")}</dd>
-  <dt>Rumbo</dt><dd>${v(s.trk!=null&&Math.round(s.trk),"°")}</dd><dt>Vertical</dt><dd>${v(s.vr," ft/min")}</dd>
-  <dt>Squawk</dt><dd>${v(s.sq)}</dd><dt>Posición</dt><dd>${s.d.toFixed(1)} NM · ${Math.round(s.b*180/Math.PI)}°</dd></dl>`;
+  <dt>Type</dt><dd>${v(s.type)}</dd><dt>Registration</dt><dd>${v(s.reg)}</dd>
+  <dt>Altitude</dt><dd>${fl(s.alt)} (${s.alt} ft)</dd><dt>Ground speed</dt><dd>${v(s.gs!=null&&Math.round(s.gs)," kt")}</dd>
+  <dt>Heading</dt><dd>${v(s.trk!=null&&Math.round(s.trk),"°")}</dd><dt>Vertical</dt><dd>${v(s.vr," ft/min")}</dd>
+  <dt>Squawk</dt><dd>${v(s.sq)}</dd><dt>Position</dt><dd>${s.d.toFixed(1)} NM · ${Math.round(s.b*180/Math.PI)}°</dd></dl>`;
 }
 setInterval(panel,1000);
 
